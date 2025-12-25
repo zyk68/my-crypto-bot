@@ -15,7 +15,7 @@ st.title("🤖 AI 币安量化交易监控")
 # ---------------------------------------------------------
 @st.cache_resource
 def init_exchange():
-    return ccxt.binance({
+    return ccxt.kraken({
         'enableRateLimit': True,  # 启用速率限制，防止报错
         # 'apiKey': st.secrets["BINANCE_API_KEY"], # 如果你要交易，后期在 Secrets 里填入 Key
         # 'secret': st.secrets["BINANCE_SECRET_KEY"],
