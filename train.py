@@ -9,55 +9,51 @@ from sklearn.metrics import accuracy_score
 # ---------------------------------------------------------
 # 1. 页面配置
 # ---------------------------------------------------------
-st.set_page_config(page_title="AI 交易决策 (雅虎版)", layout="wide")
-st.title("🤖 AI 交易决策 Pro：雅虎财经版")
-st.caption("数据源：Yahoo Finance | 无限制下载 | 极速响应")
+st.set_page_config(page_title="AI 极速版", layout="wide")
+st.title("🚀 AI 交易决策：极速切换版")
+st.caption("支持 BTC / ETH / SOL / DOGE 一键切换 | 数据源：Yahoo Finance")
 
 # ---------------------------------------------------------
-# 2. 数据处理 (使用 yfinance，超级稳定)
+# 2. 数据处理 (雅虎财经源)
 # ---------------------------------------------------------
 def fetch_and_prepare_data(symbol, timeframe, limit=10000):
-    # 雅虎财经的格式转换：把 DOGE/USD 转换成 DOGE-USD
-    yahoo_symbol = symbol.replace("/", "-").replace("_", "-")
+    # 这里的 symbol 已经是处理好的格式 (如 BTC-USD)
     
-    # 雅虎的时间周期映射
-    # limit 在这里主要用来控制回溯天数，因为雅虎是按“天”下载的
-    period = "730d" # 默认下载最近2年数据 (1h数据的上限通常是730天)
+    period = "730d" # 默认下载2年
     if timeframe == "1d":
-        period = "max" # 日线可以无限长
+        period = "max"
     
-    st.toast(f"正在从雅虎财经下载 {yahoo_symbol} 数据...", icon="📥")
+    st.toast(f"正在获取 {symbol} 的最新数据...", icon="⚡")
     
     try:
-        # 下载数据 (自动修复多级索引问题)
-        df = yf.download(tickers=yahoo_symbol, period=period, interval=timeframe, progress=False, multi_level_index=False)
+        # 下载数据
+        df = yf.download(tickers=symbol, period=period, interval=timeframe, progress=False, multi_level_index=False)
         
         if df.empty:
-            st.error(f"❌ 找不到交易对 {yahoo_symbol}，请检查拼写 (例如尝试 DOGE-USD 或 BTC-USD)")
+            st.error(f"无法获取数据，请稍后重试。")
             st.stop()
             
-        # 雅虎下载的列名首字母是大写的，统一一下
+        # 统一列名
         df = df.rename(columns={
             "Open": "open", "High": "high", "Low": "low", 
             "Close": "close", "Volume": "volume"
         })
         
-        # 只要最后 limit 条
+        # 截取需要的长度
         if len(df) > limit:
             df = df.iloc[-limit:]
             
-        # 必须重置索引，把 Date/Datetime 变成一列
+        # 处理索引
         df = df.reset_index()
-        # 雅虎的日期列名可能是 'Date' 或 'Datetime'
         if 'Datetime' in df.columns:
             df = df.rename(columns={'Datetime': 'timestamp'})
         elif 'Date' in df.columns:
             df = df.rename(columns={'Date': 'timestamp'})
 
-        # 去除时区信息 (避免绘图报错)
+        # 去除时区
         df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
 
-        # --- 特征工程 (保持不变) ---
+        # --- 特征工程 ---
         df['returns'] = df['close'].pct_change()
         df['range'] = (df['high'] - df['low']) / df['close']
         
@@ -86,7 +82,7 @@ def fetch_and_prepare_data(symbol, timeframe, limit=10000):
         return df
 
     except Exception as e:
-        st.error(f"雅虎数据下载失败: {e}")
+        st.error(f"数据下载出错: {e}")
         st.stop()
 
 # ---------------------------------------------------------
@@ -110,20 +106,31 @@ def train_and_predict(df):
     return model, acc, pred, prob
 
 # ---------------------------------------------------------
-# 4. 主界面
+# 4. 主界面 (这里修改了！)
 # ---------------------------------------------------------
 st.sidebar.header("控制面板")
-# 雅虎财经代码习惯：BTC-USD, DOGE-USD, ETH-USD
-symbol = st.sidebar.text_input("交易对", "DOGE-USD") 
-# 雅虎的 1小时数据很稳，但雅虎不支持 4h 数据，所以只提供 1h 和 1d
+
+# --- 修改开始：使用单选按钮快速切换 ---
+st.sidebar.subheader("1. 选择币种")
+# 定义显示的名字和实际代码的对应关系
+coin_map = {
+    "BTC (比特币)": "BTC-USD",
+    "ETH (以太坊)": "ETH-USD",
+    "SOL (索拉纳)": "SOL-USD",
+    "DOGE (狗狗币)": "DOGE-USD"
+}
+# 获取用户选择的中文名
+selected_label = st.sidebar.radio("点击直接切换:", list(coin_map.keys()))
+# 拿到实际的代码 (例如 DOGE-USD)
+symbol = coin_map[selected_label]
+# --- 修改结束 ---
+
+st.sidebar.subheader("2. 参数设置")
 timeframe = st.sidebar.selectbox("周期", ['1h', '1d'])
-limit_num = st.sidebar.slider("学习 K 线数量", 500, 10000, 3000, step=100)
+limit_num = st.sidebar.slider("K线数量 (建议 ETH 设大)", 500, 10000, 3000, step=100)
 
 if st.button("开始分析", type="primary"):
-    # 获取数据
     df = fetch_and_prepare_data(symbol, timeframe, limit=limit_num)
-    
-    st.toast(f"成功获取 {len(df)} 条数据，AI 正在计算...", icon="🧠")
     
     model, acc, pred, prob = train_and_predict(df)
     
@@ -139,20 +146,21 @@ if st.button("开始分析", type="primary"):
         stop_loss = last_close + (2.0 * last_atr)
         take_profit = last_close - (3.0 * last_atr)
 
-    # 展示
+    # 结果展示
     st.divider()
+    st.subheader(f"{selected_label} 分析结果") # 显示当前选中的币种
+    
     c1, c2, c3 = st.columns(3)
-    c1.metric("当前价格", f"${last_close:.5f}")
+    c1.metric("当前价格", f"${last_close:.4f}")
     c2.metric("AI 建议", direction)
     c3.metric("信心指数", f"{prob[pred]*100:.1f}%")
     
-    st.info(f"📊 **策略建议** (基于雅虎财经 {len(df)} 条数据)")
+    st.info(f"📊 **策略建议** (基于 {len(df)} 根 K 线)")
     c4, c5, c6 = st.columns(3)
-    c4.metric("🛑 止损 (SL)", f"${stop_loss:.5f}")
-    c5.metric("🎯 止盈 (TP)", f"${take_profit:.5f}")
+    c4.metric("🛑 止损 (SL)", f"${stop_loss:.4f}")
+    c5.metric("🎯 止盈 (TP)", f"${take_profit:.4f}")
     c6.metric("验证准确率", f"{acc*100:.1f}%")
 
-    # 画图
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df['timestamp'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'))
     fig.add_hline(y=take_profit, line_dash="dash", line_color="green", annotation_text="止盈")
