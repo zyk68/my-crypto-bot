@@ -1,4 +1,32 @@
+import os
+import subprocess
+import sys
+import time
+
+# --- 自动安装运行环境 (专治各种 ModuleNotFound) ---
+def install_package(package):
+    try:
+        __import__(package)
+    except ImportError:
+        print(f"正在安装 {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# 这里列出你所有的库
+install_package("ccxt")
+install_package("pandas")
+install_package("plotly")
+install_package("scikit-learn")
+# ---------------------------------------------
+
+import streamlit as st
 import ccxt
+import pandas as pd
+
+st.title("我的量化交易机器人")
+st.write("环境检查完毕，ccxt 已成功安装！")
+
+# ↓↓↓↓ 把你原来的代码从这里开始粘贴 ↓↓↓↓
+# ...import ccxt
 import pandas as pd
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
@@ -51,4 +79,5 @@ try:
     print("💾 模型已保存为 my_crypto_model.json")
 
 except Exception as e:
+
     print(f"出错啦: {e}")
