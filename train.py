@@ -16,7 +16,7 @@ st.caption("数据源：Yahoo Finance | 无限制下载 | 极速响应")
 # ---------------------------------------------------------
 # 2. 数据处理 (使用 yfinance，超级稳定)
 # ---------------------------------------------------------
-def fetch_and_prepare_data(symbol, timeframe, limit=3000):
+def fetch_and_prepare_data(symbol, timeframe, limit=10000):
     # 雅虎财经的格式转换：把 DOGE/USD 转换成 DOGE-USD
     yahoo_symbol = symbol.replace("/", "-").replace("_", "-")
     
