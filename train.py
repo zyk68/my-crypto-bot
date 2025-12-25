@@ -32,7 +32,7 @@ def fetch_and_prepare_data(symbol, timeframe):
     st.toast(f"正在分析 {symbol}...", icon="🔍")
     
     # 获取数据
-    bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=500)
+    bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=1500)
     df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     
