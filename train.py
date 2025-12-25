@@ -4,18 +4,16 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 # ---------------------------------------------------------
-# 1. 页面基础配置
+# 1. 页面配置
 # ---------------------------------------------------------
-st.set_page_config(page_title="AI 机器学习预测", layout="wide")
-st.title("🧠 机器学习实战：ETH 价格预测")
-st.caption("使用随机森林 (Random Forest) 算法，根据历史数据自动学习交易规律")
+st.set_page_config(page_title="AI 交易决策Pro", layout="wide")
+st.title("🤖 AI 交易决策 Pro：带止盈止损版")
 
 # ---------------------------------------------------------
-# 2. 连接交易所 (Kraken)
+# 2. 连接交易所
 # ---------------------------------------------------------
 @st.cache_resource
 def init_exchange():
@@ -28,140 +26,125 @@ except Exception as e:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. 数据处理与特征工程 (教 AI 认识数据)
+# 3. 数据处理 (新增 ATR 计算)
 # ---------------------------------------------------------
 def fetch_and_prepare_data(symbol, timeframe):
-    st.toast(f"正在下载 {symbol} 的历史数据并进行教学...", icon="🎓")
+    st.toast(f"正在分析 {symbol}...", icon="🔍")
     
-    # 1. 获取数据 (限制500条以防内存溢出)
+    # 获取数据
     bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=500)
     df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     
-    # 2. 构造特征 (Feature Engineering) - 这是 AI 学习的教材
-    # 简单特征：RSI, 均线差, 价格变化率, 波动率
+    # --- 特征工程 ---
     df['returns'] = df['close'].pct_change()
     df['range'] = (df['high'] - df['low']) / df['close']
     
-    # RSI 计算
+    # RSI
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # 均线偏离度
+    # 均线
     df['SMA_7'] = df['close'].rolling(7).mean()
     df['dist_SMA_7'] = (df['close'] - df['SMA_7']) / df['SMA_7']
+
+    # --- 新增：ATR (波动率) 计算，用于止盈止损 ---
+    # TR = Max(High-Low, Abs(High-PrevClose), Abs(Low-PrevClose))
+    df['tr1'] = df['high'] - df['low']
+    df['tr2'] = (df['high'] - df['close'].shift(1)).abs()
+    df['tr3'] = (df['low'] - df['close'].shift(1)).abs()
+    df['TR'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
+    df['ATR'] = df['TR'].rolling(window=14).mean()
     
-    # 3. 构造目标 (Label) - 告诉 AI 什么是“正确答案”
-    # 如果下一根K线收盘价 > 当前收盘价，标记为 1 (涨)，否则为 0 (跌)
+    # 目标 (Label)
     df['Target'] = (df['close'].shift(-1) > df['close']).astype(int)
     
-    # 清除空值 (刚开始计算指标时会有NaN)
     df.dropna(inplace=True)
     return df
 
 # ---------------------------------------------------------
-# 4. 训练模型与预测
+# 4. 训练与策略
 # ---------------------------------------------------------
 def train_and_predict(df):
-    # 定义 AI 要看哪些指标 (Features)
-    feature_cols = ['RSI', 'dist_SMA_7', 'returns', 'range', 'volume']
+    feature_cols = ['RSI', 'dist_SMA_7', 'returns', 'range', 'volume', 'ATR']
+    X = df[feature_cols]
+    y = df['Target']
     
-    X = df[feature_cols] # 试卷题目
-    y = df['Target']     # 标准答案
-    
-    # 切分数据：80%用来学习，20%用来模拟考试
-    # shuffle=False 非常重要，因为时间序列不能打乱
+    # 训练模型
     split = int(len(X) * 0.8)
-    X_train, X_test = X.iloc[:split], X.iloc[split:]
-    y_train, y_test = y.iloc[:split], y.iloc[split:]
-    
-    # 初始化模型：随机森林
     model = RandomForestClassifier(n_estimators=100, min_samples_split=10, random_state=42)
+    model.fit(X.iloc[:split], y.iloc[:split])
     
-    # 开始训练 (Fit)
-    model.fit(X_train, y_train)
+    # 准确率
+    acc = accuracy_score(y.iloc[split:], model.predict(X.iloc[split:]))
     
-    # 模拟考试
-    test_preds = model.predict(X_test)
-    accuracy = accuracy_score(y_test, test_preds)
+    # 预测未来
+    latest = X.iloc[[-1]]
+    pred = model.predict(latest)[0]
+    prob = model.predict_proba(latest)[0]
     
-    # 实战预测：用最新一行数据预测未来
-    latest_features = X.iloc[[-1]] # 取最后一行
-    future_pred = model.predict(latest_features)[0]
-    future_prob = model.predict_proba(latest_features)[0] # 获取概率
-    
-    return model, accuracy, future_pred, future_prob, feature_cols
+    return model, acc, pred, prob
 
 # ---------------------------------------------------------
-# 5. 主界面逻辑
+# 5. 主界面
 # ---------------------------------------------------------
 st.sidebar.header("控制面板")
-symbol = st.sidebar.text_input("交易对", "ETH/USD")
+symbol = st.sidebar.text_input("交易对", "DOGE/USD")
 timeframe = st.sidebar.selectbox("周期", ['1h', '4h', '1d'])
 
-if st.button("开始 AI 训练与预测", type="primary"):
-    with st.spinner("AI 正在疯狂计算中..."):
-        try:
-            # 1. 获取数据
-            df = fetch_and_prepare_data(symbol, timeframe)
-            
-            # 2. 训练模型
-            model, acc, pred, prob, feat_cols = train_and_predict(df)
-            
-            # --- 结果展示区 ---
-            
-            # 顶部关键指标
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("当前价格", f"${df['close'].iloc[-1]:.2f}")
-            col2.metric("AI 历史准确率", f"{acc*100:.1f}%", help="模型在最近20%未见过的历史数据上的预测胜率")
-            
-            # 预测结果
-            direction = "看涨 (UP) 📈" if pred == 1 else "看跌 (DOWN) 📉"
-            confidence = prob[pred] * 100
-            
-            # 根据置信度变色
-            color = "normal"
-            if confidence > 60: color = "inverse"
-            
-            with col3:
-                st.metric("AI 预测下个周期", direction)
-            with col4:
-                st.metric("AI 信心指数", f"{confidence:.1f}%")
+if st.button("开始分析", type="primary"):
+    try:
+        df = fetch_and_prepare_data(symbol, timeframe)
+        model, acc, pred, prob = train_and_predict(df)
+        
+        # 获取最新价格和ATR
+        last_close = df['close'].iloc[-1]
+        last_atr = df['ATR'].iloc[-1]
+        
+        # --- 计算止盈止损 (策略：2倍ATR止损，3倍ATR止盈) ---
+        stop_loss = 0.0
+        take_profit = 0.0
+        
+        if pred == 1: # AI 看涨
+            direction = "做多 (Long) 🟢"
+            stop_loss = last_close - (2.0 * last_atr)
+            take_profit = last_close + (3.0 * last_atr)
+            signal_color = "green"
+        else: # AI 看跌
+            direction = "做空 (Short) 🔴"
+            stop_loss = last_close + (2.0 * last_atr)
+            take_profit = last_close - (3.0 * last_atr)
+            signal_color = "red"
 
-            st.divider()
+        # --- 显示结果 ---
+        st.subheader(f"{symbol} 交易建议")
+        
+        # 第一行：核心信号
+        c1, c2, c3 = st.columns(3)
+        c1.metric("当前价格", f"${last_close:.4f}")
+        c2.metric("AI 方向", direction, delta_color="off")
+        c3.metric("信心指数", f"{prob[pred]*100:.1f}%")
+        
+        # 第二行：止盈止损卡片
+        st.info("📊 **基于 ATR 波动率的建议点位** (盈亏比 1.5:1)")
+        c4, c5, c6 = st.columns(3)
+        c4.metric("🛑 建议止损 (SL)", f"${stop_loss:.4f}", help="触碰此价格必须离场，防止亏损扩大")
+        c5.metric("🎯 建议止盈 (TP)", f"${take_profit:.4f}", help="触碰此价格落袋为安")
+        c6.metric("历史准确率", f"{acc*100:.1f}%", help="如果低于50%，建议反着做或观望")
 
-            # 图表区
-            c1, c2 = st.columns([2, 1])
-            
-            with c1:
-                st.subheader("📊 价格走势与均线")
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(x=df['timestamp'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'))
-                fig.add_trace(go.Scatter(x=df['timestamp'], y=df['SMA_7'], line=dict(color='orange'), name='SMA 7'))
-                fig.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig, use_container_width=True)
-                
-            with c2:
-                st.subheader("🧠 AI 觉得什么最重要？")
-                # 显示特征重要性 (Feature Importance)
-                importances = pd.DataFrame({
-                    '特征': feat_cols,
-                    '重要性': model.feature_importances_
-                }).sort_values('重要性', ascending=True)
-                
-                fig_imp = go.Figure(go.Bar(
-                    x=importances['重要性'],
-                    y=importances['特征'],
-                    orientation='h'
-                ))
-                fig_imp.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig_imp, use_container_width=True)
+        # 图表
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(x=df['timestamp'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'))
+        
+        # 在图上画出止盈止损线
+        fig.add_hline(y=take_profit, line_dash="dash", line_color="green", annotation_text="止盈 TP")
+        fig.add_hline(y=stop_loss, line_dash="dash", line_color="red", annotation_text="止损 SL")
+        
+        fig.update_layout(height=500, title=f"{symbol} 价格走势图")
+        st.plotly_chart(fig, use_container_width=True)
 
-            with st.expander("查看 AI 学习用的原始数据"):
-                st.dataframe(df.tail(10))
-
-        except Exception as e:
-            st.error(f"运行出错: {e}")
+    except Exception as e:
+        st.error(f"出错: {e}")
